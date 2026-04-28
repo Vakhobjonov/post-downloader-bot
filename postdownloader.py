@@ -5,6 +5,8 @@ import re
 from telethon import TelegramClient, events
 from dotenv import load_dotenv
 load_dotenv()
+if text == "/start":
+    return
 app = Flask(__name__)
 
 @app.route("/")
