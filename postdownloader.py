@@ -5,8 +5,6 @@ import re
 from telethon import TelegramClient, events
 from dotenv import load_dotenv
 load_dotenv()
-if text == "/start":
-    return
 app = Flask(__name__)
 
 @app.route("/")
@@ -53,6 +51,11 @@ def parse_link(link):
 @bot.on(events.NewMessage(pattern="/start"))
 async def start(event):
     await event.reply("Send me post link")
+      if text == "/start":
+        return
+
+    if "t.me/" not in text:
+        return
 
 
 @bot.on(events.NewMessage)
