@@ -1,5 +1,3 @@
 telethon
-flask
-requests
 python-dotenv
-pyTelegramBotAPI
+flask
