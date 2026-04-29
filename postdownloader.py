@@ -1,96 +1,123 @@
-from flask import Flask
-import threading
 import os
 import re
-from telethon import TelegramClient, events
+import asyncio
+import requests
+from flask import Flask, request
+from telethon import TelegramClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+DOWNLOAD_DIR = "downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
 app = Flask(__name__)
+
+user = TelegramClient("user_session", API_ID, API_HASH)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+loop.run_until_complete(user.start())
+
+
+def parse_link(text):
+    text = text.split("?")[0].strip()
+
+    m = re.search(r"t\.me/c/(\d+)/(\d+)", text)
+    if m:
+        return int("-100" + m.group(1)), int(m.group(2))
+
+    m = re.search(r"t\.me/([A-Za-z0-9_]+)/(\d+)", text)
+    if m:
+        return m.group(1), int(m.group(2))
+
+    return None, None
+
+
+def send_message(chat_id, text):
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data={"chat_id": chat_id, "text": text}
+    )
+
+
+def send_file(chat_id, file_path, caption=""):
+    with open(file_path, "rb") as f:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument",
+            data={"chat_id": chat_id, "caption": caption[:1000]},
+            files={"document": f}
+        )
+
 
 @app.route("/")
 def home():
     return "Bot is running!"
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
 
-threading.Thread(target=run_flask, daemon=True).start()
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = request.get_json()
 
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
+    message = update.get("message", {})
+    chat_id = message.get("chat", {}).get("id")
+    text = message.get("text", "")
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-user = TelegramClient("user_session", api_id, api_hash)
-bot = TelegramClient("bot_session", api_id, api_hash)
-
-def parse_link(link):
-    link = link.split("?")[0].strip()
-
-    m = re.search(r"t\.me/c/(\d+)/(\d+)", link)
-    if m:
-        channel_id = int("-100" + m.group(1))
-        post_id = int(m.group(2))
-        return channel_id, post_id
-
-    m = re.search(r"t\.me/([A-Za-z0-9_]+)/(\d+)", link)
-    if m:
-        channel = m.group(1)
-        post_id = int(m.group(2))
-        return channel, post_id
-
-    return None, None
-
-@bot.on(events.NewMessage(pattern="/start"))
-async def start(event):
-    await event.reply("Send me post link")
-
-@bot.on(events.NewMessage)
-async def handler(event):
-    text = event.raw_text.strip()
+    if not chat_id:
+        return "ok"
 
     if text == "/start":
-        return
+        send_message(chat_id, "Send me post link")
+        return "ok"
 
     if "t.me/" not in text:
-        return
+        return "ok"
 
-    await event.reply("⏳ Yuklayapman...")
+    send_message(chat_id, "⏳ Yuklayapman...")
 
     channel, post_id = parse_link(text)
 
     if not channel:
-        await event.reply("❌ Link noto‘g‘ri.")
-        return
+        send_message(chat_id, "❌ Link noto‘g‘ri.")
+        return "ok"
 
     try:
-        post = await user.get_messages(channel, ids=post_id)
+        post = loop.run_until_complete(user.get_messages(channel, ids=post_id))
 
         if not post:
-            await event.reply("❌ Post topilmadi. Kanalga a’zo ekaningni tekshir.")
-            return
+            send_message(chat_id, "❌ Post topilmadi.")
+            return "ok"
 
         caption = post.text or "Media"
 
         if post.media:
-            file_path = await user.download_media(post, file=DOWNLOAD_DIR)
-            await bot.send_file(event.chat_id, file_path, caption=caption[:1000])
+            file_path = loop.run_until_complete(
+                user.download_media(post, file=DOWNLOAD_DIR)
+            )
+            send_file(chat_id, file_path, caption)
+            os.remove(file_path)
         else:
-            await event.reply(caption)
+            send_message(chat_id, caption)
 
     except Exception as e:
-        await event.reply(f"❌ Xato:\n{e}")
+        send_message(chat_id, f"❌ Xato:\n{e}")
 
-async def main():
-    await user.start()
-    await bot.start(bot_token=bot_token)
-    print("Bot ishlayapti...")
-    await bot.run_until_disconnected()
+    return "ok"
 
-with user:
-    user.loop.run_until_complete(main())
+
+@app.before_request
+def setup_webhook_once():
+    if WEBHOOK_URL:
+        requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            params={"url": f"{WEBHOOK_URL}/{BOT_TOKEN}"}
+        )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
