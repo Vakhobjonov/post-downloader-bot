@@ -110,14 +110,6 @@ def webhook():
     return "ok"
 
 
-@app.before_request
-def setup_webhook_once():
-    if WEBHOOK_URL:
-        requests.get(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-            params={"url": f"{WEBHOOK_URL}/{BOT_TOKEN}"}
-        )
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
