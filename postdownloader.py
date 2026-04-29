@@ -21,7 +21,8 @@ app = Flask(__name__)
 user = TelegramClient("user_session", API_ID, API_HASH)
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-loop.run_until_complete(user.start())
+user = TelegramClient("user_session", API_ID, API_HASH)
+user.start()   # ✅ to‘g‘ri
 
 
 def parse_link(text):
